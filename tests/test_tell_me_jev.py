@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from typesafe_sdk import Choice, Noul
 
 from tell_me_jev import (
+    DotenvParseError,
+    __version__,
     agent_summary,
     build_excerpt,
     build_llm_metrics,
@@ -29,6 +31,46 @@ def test_parse_dotenv_does_not_execute_shell_syntax(tmp_path: Path) -> None:
     )
 
     assert parse_dotenv(env_file) == {"TYPESAFE_API_KEY": "key-value", "OTHER": "value"}
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        ("BROKEN\n", "expected KEY=value"),
+        ("1INVALID=value\n", "expected KEY=value"),
+        ("KEY='unclosed\n", "unmatched outer quote"),
+    ],
+)
+def test_parse_dotenv_rejects_malformed_entries(
+    tmp_path: Path, content: str, reason: str
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(content, encoding="utf-8")
+
+    with pytest.raises(DotenvParseError, match=rf"line 1: {reason}"):
+        parse_dotenv(env_file)
+
+
+def test_version_command_is_metadata_only(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--version"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == f"{__version__}\n"
+    assert captured.err == ""
+
+
+def test_schema_command_exposes_the_versioned_cli_contract(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["--schema"]) == 0
+
+    schema = json.loads(capsys.readouterr().out)
+    assert schema["schema_version"] == 1
+    assert schema["name"] == "tmjev"
+    assert schema["version"] == __version__
+    assert set(schema["commands"]) == {"ask", "output"}
+    assert "task" in schema["commands"]["output"]["required"]
+    assert "TYPESAFE_API_KEY" not in json.dumps(schema)
 
 
 def test_redact_text_hides_common_secret_shapes() -> None:
@@ -194,6 +236,10 @@ def test_build_llm_metrics_separates_input_and_output_character_counts() -> None
     assert metrics["llm_input_chars_avoided"] == 4_200
     assert metrics["llm_input_chars_from_jev"] == len(rendered_output)
     assert metrics["llm_input_chars_saved"] == 4_200 - len(rendered_output)
+    assert metrics["metrics_schema_version"] == 1
+    assert metrics["tmjev_version"] == __version__
+    assert metrics["duration_ms"] is None
+    assert metrics["max_retries"] is None
 
 
 def test_build_llm_metrics_does_not_claim_avoided_raw_for_ask_mode() -> None:
@@ -255,6 +301,8 @@ def test_output_command_writes_boundary_metrics_without_changing_stdout(
                 str(raw_file),
                 "--task",
                 "diagnose",
+                "--retries",
+                "4",
                 "--env-file",
                 str(env_file),
                 "--metrics-file",
@@ -273,12 +321,18 @@ def test_output_command_writes_boundary_metrics_without_changing_stdout(
             str(raw_file),
             "--task",
             "diagnose",
+            "--retries",
+            "4",
             "--env-file",
             str(env_file),
         ]
     )
     assert metrics["llm_input_chars_avoided"] == len("ERROR failed\n")
     assert metrics["llm_input_chars_from_jev"] == len(stdout)
+    assert metrics["metrics_schema_version"] == 1
+    assert metrics["tmjev_version"] == __version__
+    assert metrics["duration_ms"] >= 0
+    assert metrics["max_retries"] == 4
 
 
 def test_ask_command_metrics_have_no_avoided_raw_input(
@@ -338,6 +392,8 @@ def test_failed_command_also_appends_metrics(
                 str(tmp_path / "missing.log"),
                 "--task",
                 "diagnose",
+                "--retries",
+                "0",
                 "--metrics-file",
                 str(metrics_file),
             ]
@@ -350,3 +406,49 @@ def test_failed_command_also_appends_metrics(
     assert metrics["success"] is False
     assert metrics["error"] == "input file not found: " + str(tmp_path / "missing.log")
     assert metrics["llm_input_chars_from_jev"] == len(stdout)
+    assert metrics["metrics_schema_version"] == 1
+    assert metrics["tmjev_version"] == __version__
+    assert metrics["duration_ms"] >= 0
+    assert metrics["max_retries"] == 0
+
+
+def test_malformed_dotenv_returns_exit_2_without_calling_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw_file = tmp_path / "output.log"
+    raw_file.write_text("ERROR failed\n", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text("BROKEN\n", encoding="utf-8")
+    metrics_file = tmp_path / "metrics.jsonl"
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the API must not be called for malformed dotenv input")
+
+    monkeypatch.setattr("tell_me_jev.request_evaluation", fail_if_called)
+
+    assert (
+        main(
+            [
+                "output",
+                "--file",
+                str(raw_file),
+                "--task",
+                "diagnose",
+                "--env-file",
+                str(env_file),
+                "--metrics-file",
+                str(metrics_file),
+            ]
+        )
+        == 2
+    )
+
+    stdout = capsys.readouterr().out
+    error = json.loads(stdout)
+    metrics = json.loads(metrics_file.read_text(encoding="utf-8").splitlines()[0])
+    assert "line 1: expected KEY=value" in error["error"]
+    assert metrics["success"] is False
+    assert metrics["duration_ms"] >= 0
+    assert metrics["max_retries"] == 2

@@ -4,16 +4,16 @@ Legend: path:{lines}  (lines = total number of lines via wc -l)
     ├── .agents
     │   └── skills
     │       └── tmjev
-    │           └── SKILL.md:92
+    │           └── SKILL.md:96
     ├── .gitignore:37
-    ├── README.md:128
-    ├── SESSION_PROMPT.md:80
+    ├── README.md:147
+    ├── SESSION_PROMPT.md:86
     ├── gitree.txt:19
     ├── pyproject.toml:41
-    ├── tell_me_jev.py:606
+    ├── tell_me_jev.py:668
     ├── tests
-    │   └── test_tell_me_jev.py:352
-    ├── tmjev:2
+    │   └── test_tell_me_jev.py:454
+    ├── tmjev:13
     └── uv.lock:748
 
 6 directories, 10 files

@@ -1,2 +1,13 @@
 #!/usr/bin/env bash
-exec uv run --project /home/filipe/tell_me_jev python -m tell_me_jev "$@"
+set -euo pipefail
+
+script="${BASH_SOURCE[0]}"
+while [[ -L "$script" ]]; do
+  directory="$(CDPATH= cd -P "$(dirname "$script")" && pwd -P)"
+  target="$(readlink "$script")"
+  [[ "$target" = /* ]] || target="$directory/$target"
+  script="$target"
+done
+
+project_dir="$(CDPATH= cd -P "$(dirname "$script")" && pwd -P)"
+exec uv run --project "$project_dir" python -m tell_me_jev "$@"

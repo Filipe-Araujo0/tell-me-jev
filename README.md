@@ -14,18 +14,31 @@ Reduce the context sent to the main LLM. The `output` command reads raw output, 
 
 **Updated on:** 2026-09-21T15:13:05-03:00
 
-The project uses the official `typesafe-sdk` for Jev calls and `pydantic-cli` for typed subcommands. The installed executable is `/home/filipe/.local/bin/tmjev` and points to this source checkout through `uv run`. The key is read from `/home/filipe/.env` on every call, without relying on the OpenCode service environment.
+The project uses the official `typesafe-sdk` for Jev calls and `pydantic-cli` for typed subcommands. The key is read from `~/.env` on every call, without relying on the OpenCode service environment.
 
 **Updated on:** 2026-09-21T17:34:32-03:00
 
-The local agent skill is at `.agents/skills/tmjev/SKILL.md`.
+**Updated on:** 2026-09-21T18:26:42-03:00
+
+The local agent skill is at `.agents/skills/tmjev/SKILL.md`. The tracked `./tmjev`
+wrapper resolves its own checkout path, including when invoked through a symlink.
+The packaged console script is also available as `tmjev` after installation. The
+key is read from `~/.env` on every call, without relying on the OpenCode service
+environment.
 
 Prepare the environment:
 
 ```bash
-cd /home/filipe/tell_me_jev
+cd /path/to/tell_me_jev
 uv sync
 ./tmjev --help
+```
+
+Metadata commands do not call Jev or append LLM-boundary metrics:
+
+```bash
+tmjev --version
+tmjev --schema
 ```
 
 ## Usage
@@ -97,7 +110,9 @@ Use `--pretty` only when a person needs to read the response. The default format
 
 **Updated on:** 2026-09-21T14:49:39-03:00
 
-The CLI always records one JSONL line with metrics at the LLM boundary without adding the counters to the normal response. The default path is `~/.local/state/tmjev/metrics.jsonl`; use `--metrics-file` only to override the destination:
+**Updated on:** 2026-09-21T18:26:42-03:00
+
+The CLI always records one JSONL line with metrics at the LLM boundary without adding the counters to the normal response. Each record has `metrics_schema_version`, `tmjev_version`, `duration_ms`, and `max_retries` in addition to the character counters. The default path is `~/.local/state/tmjev/metrics.jsonl`; use `--metrics-file` only to override the destination:
 
 ```bash
 command 2>&1 | tmjev output \
@@ -108,6 +123,8 @@ command 2>&1 | tmjev output \
 The file records `llm_input_chars_avoided`, `llm_input_chars_from_jev`, and `llm_output_chars_to_jev` separately. The first is the size of the raw output received by the CLI; the second is the exact size of the JSON emitted by the CLI, including the newline; the third is calculated automatically from the arguments received by the CLI without counting `--metrics-file` itself. The record is appended even when the call fails. In `ask` mode, the CLI does not know the avoided raw input, so this field is `null`.
 
 ## `output` Mode Contract
+
+**Updated on:** 2026-09-21T18:26:42-03:00
 
 The state sent to Jev includes the task, file metadata, parser facts, and a redacted excerpt. The questions evaluate:
 
@@ -124,5 +141,7 @@ Exit codes:
 
 - `0`: evaluation completed.
 - `2`: invalid input, configuration, or call.
+
+Dotenv files accept blank lines, comments, optional `export`, and valid `KEY=value` assignments. Malformed lines, invalid keys, unmatched outer quotes, and invalid UTF-8 fail with a line-numbered error and exit code `2`.
 
 The CLI does not execute the suggested action and does not treat Jev's response as authorization for destructive commands.

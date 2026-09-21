@@ -12,10 +12,12 @@ Use Jev exclusively as an inexpensive semantic judgment layer to reduce the main
 
 **Updated on:** 2026-09-21T17:34:32-03:00
 
-- The TypeSafe skill was installed for OpenCode at `~/.agents/skills/typesafe-ai`.
-- The API key is in `/home/filipe/.env` under `TYPESAFE_API_KEY`.
+- **Updated on:** 2026-09-21T18:26:42-03:00
+- The TypeSafe skill is installed for OpenCode at `~/.agents/skills/typesafe-ai`.
+- The API key is in `~/.env` under `TYPESAFE_API_KEY`.
 - Never display, record, copy, or put the key in prompts, responses, Git, or memory.
 - The installed global CLI is `tmjev`, with compact JSON output by default.
+- `tmjev --version` and `tmjev --schema` expose local metadata without calling Jev or writing metrics.
 - In `output` mode, the normal output for the LLM contains only `passed` (when a status is supplied), `kind`, and `next_action`; use `--full` only for human diagnosis.
 - The project is managed with `uv`, uses the official `typesafe-sdk` for Jev, and uses `pydantic-cli` for typed subcommands.
 - The environment must be synchronized with `uv sync`; the global wrapper runs through the uv project, not the system Python.
@@ -48,12 +50,16 @@ To evaluate any tool, first check whether its output is already small, determini
 
 **Updated on:** 2026-09-21T15:05:58-03:00
 
+**Updated on:** 2026-09-21T18:26:42-03:00
+
 - Measure characters at the main LLM boundary; do not use Jev's `usage.input_tokens` as the LLM savings measure.
 - Compare `llm_input_chars_avoided` (raw input that would have gone directly to the LLM) with `llm_input_chars_from_jev` (JSON actually received from the CLI output).
 - Measure `llm_output_chars_to_jev` separately. It is calculated automatically from the arguments received by the CLI; in `output` mode, questions and choices created internally by the CLI are not included in this count.
-- The CLI automatically records these metrics outside the JSON delivered to the LLM at `~/.local/state/tmjev/metrics.jsonl`; `--metrics-file` only overrides the destination, preventing instrumentation from increasing the measured input.
+- The CLI automatically records these metrics outside the JSON delivered to the LLM at `~/.local/state/tmjev/metrics.jsonl`; `--metrics-file` only overrides the destination, preventing instrumentation from increasing the measured input. Every record includes `metrics_schema_version`, `tmjev_version`, `duration_ms`, and `max_retries`.
 - In `ask` mode, `state` and `questions` written by the LLM are part of `llm_output_chars_to_jev`; do not claim avoided raw input when the CLI did not receive that content directly.
 - Apply input and output prices separately afterward; the primary values are characters, not exact tokens.
+
+Dotenv parsing is strict: malformed assignments, invalid keys, unmatched outer quotes, and invalid UTF-8 fail before the API call with a line-numbered error.
 
 ## Observed Results
 

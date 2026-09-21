@@ -9,6 +9,8 @@ import os
 import re
 import sys
 import time
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,6 +32,12 @@ DEFAULT_API_URL = "https://api.typesafe.ai"
 DEFAULT_MODEL = "jev-latest"
 DEFAULT_ENV_FILE = Path.home() / ".env"
 DEFAULT_METRICS_FILE = Path.home() / ".local" / "state" / "tmjev" / "metrics.jsonl"
+METRICS_SCHEMA_VERSION = 1
+
+try:
+    __version__ = package_version("tell_me_jev")
+except PackageNotFoundError:
+    __version__ = "0.1.0"
 
 RUNTIME_CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "tmjev_runtime_context", default=None
@@ -50,10 +58,18 @@ CREDENTIAL_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret)\b"
     r"\s*[:=]\s*(?!replace-me\b|your[_-]|example\b|\[redacted\])\S+"
 )
+DOTENV_ASSIGNMENT_RE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 
 
 class CliError(RuntimeError):
     """Expected user-facing CLI failure."""
+
+
+class DotenvParseError(CliError):
+    """A dotenv file contains an invalid entry."""
+
+    def __init__(self, path: Path, line_number: int, reason: str) -> None:
+        super().__init__(f"invalid dotenv file {path} at line {line_number}: {reason}")
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -61,20 +77,30 @@ def parse_dotenv(path: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
 
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise DotenvParseError(path, 0, "file is not valid UTF-8") from error
+
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
+
+        match = DOTENV_ASSIGNMENT_RE.fullmatch(line)
+        if match is None:
+            raise DotenvParseError(path, line_number, "expected KEY=value")
+
+        key, value = match.groups()
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        if value.startswith(("'", '"')):
+            quote = value[0]
+            if len(value) < 2 or value[-1] != quote:
+                raise DotenvParseError(path, line_number, "unmatched outer quote")
             value = value[1:-1]
+        elif value.endswith(("'", '"')):
+            raise DotenvParseError(path, line_number, "unmatched outer quote")
         values[key] = value
     return values
 
@@ -402,15 +428,22 @@ def build_llm_metrics(
     invocation_chars_to_jev: int,
     raw_chars: int | None = None,
     error: str | None = None,
+    *,
+    duration_ms: float | None = None,
+    max_retries: int | None = None,
 ) -> dict[str, Any]:
     input_metadata = result.get("input", {})
     avoided_chars = raw_chars
     if avoided_chars is None and mode == "output":
         avoided_chars = input_metadata.get("raw_chars")
     metrics: dict[str, Any] = {
+        "metrics_schema_version": METRICS_SCHEMA_VERSION,
+        "tmjev_version": __version__,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "mode": mode,
         "success": error is None,
+        "duration_ms": duration_ms,
+        "max_retries": max_retries,
         "llm_output_chars_to_jev": invocation_chars_to_jev,
         "llm_input_chars_avoided": avoided_chars,
         "llm_input_chars_from_jev": len(rendered_output),
@@ -456,6 +489,7 @@ class CommandBase(Cmd):
         assert context is not None
         context["metrics_file"] = Path(self.metrics_file)
         context["pretty"] = self.pretty
+        context["max_retries"] = self.retries
         return context
 
 
@@ -509,11 +543,31 @@ def cli_exception_handler(error: BaseException) -> int:
     return 2
 
 
+def cli_epilogue_handler(_exit_code: int, run_time_sec: float) -> None:
+    context = RUNTIME_CONTEXT.get()
+    if context is not None:
+        context["duration_ms"] = round(run_time_sec * 1000, 3)
+
+
 CLI_RUNNER = to_runner(
     {"ask": AskCommand, "output": OutputCommand},
     description="Compact TypeSafe/Jev evaluations for coding agents",
+    version=__version__,
     exception_handler=cli_exception_handler,
+    epilogue_handler=cli_epilogue_handler,
 )
+
+
+def build_cli_schema() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "name": "tmjev",
+        "version": __version__,
+        "commands": {
+            "ask": AskCommand.model_json_schema(),
+            "output": OutputCommand.model_json_schema(),
+        },
+    }
 
 
 def run_ask(args: AskCommand) -> dict[str, Any]:
@@ -565,12 +619,18 @@ def run_output(
 
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv == ["--schema"]:
+        print_json(build_cli_schema(), pretty=False)
+        return 0
+
     context: dict[str, Any] = {
         "raw_argv": raw_argv,
         "raw_chars": None,
         "result": None,
         "error": None,
         "metrics_file": DEFAULT_METRICS_FILE,
+        "duration_ms": None,
+        "max_retries": None,
     }
     token = RUNTIME_CONTEXT.set(context)
     try:
@@ -594,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
                 invocation_chars(raw_argv),
                 raw_chars=context["raw_chars"],
                 error=error,
+                duration_ms=context["duration_ms"],
+                max_retries=context["max_retries"],
             ),
         )
         sys.stdout.write(rendered_output)

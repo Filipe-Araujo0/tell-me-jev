@@ -83,10 +83,14 @@ truncation, secret detection, paths, counts, and policy decisions.
 
 ## Metrics And Safety
 
+**Updated on:** 2026-09-21T18:26:42-03:00
+
 - Every invocation appends character metrics to `~/.local/state/tmjev/metrics.jsonl`.
+- Metrics records include `metrics_schema_version`, `tmjev_version`, `duration_ms`, and `max_retries`.
 - Use `--metrics-file` only to override that persistent path.
+- `--version`, `--help`, and `--schema` are metadata commands; they do not call Jev or append metrics.
 - Never ask the LLM to provide a character count; the CLI records it itself.
-- Never expose `TYPESAFE_API_KEY`, which is loaded from `/home/filipe/.env`.
+- Never expose `TYPESAFE_API_KEY`, which is loaded from `~/.env`.
 - Never treat Jev's `next_action` as authorization to execute a command.
 - Never send raw secrets or unredacted full logs to Jev.
 - Use the project's `uv` environment; do not reimplement the TypeSafe HTTP call.
