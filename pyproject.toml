@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tell_me_jev"
+version = "0.1.0"
+description = "Compact TypeSafe/Jev evaluations for coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic-cli>=10,<11",
+    "typesafe-sdk>=0.7.1,<0.8",
+]
+
+[project.scripts]
+tmjev = "tell_me_jev:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15",
+    "pytest>=8",
+    "ruff>=0.16",
+]
+
+[tool.setuptools]
+py-modules = ["tell_me_jev"]
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+python_version = "3.10"
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]

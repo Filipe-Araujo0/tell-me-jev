@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec uv run --project /home/filipe/tell_me_jev python -m tell_me_jev "$@"
