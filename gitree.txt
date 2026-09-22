@@ -6,7 +6,7 @@ Legend: path:{lines}  (lines = total number of lines via wc -l)
     │       └── tmjev
     │           └── SKILL.md:102
     ├── .gitignore:37
-    ├── README.md:185
+    ├── README.md:210
     ├── SESSION_PROMPT.md:94
     ├── gitree.txt:19
     ├── pyproject.toml:41

@@ -1,185 +1,210 @@
-**Written on:** 2026-09-21T15:00:00-03:00
+**Updated on:** 2026-09-22T10:01:55-03:00
 
-# tell_me_jev
+# tmjev 🧭
 
-A small global CLI managed by `uv` for compact TypeSafe/Jev evaluations during agentic coding.
+Turn noisy test, build, and tool output into compact, typed next-step JSON for AI coding agents.
 
-## Goal
+`tmjev` is a small `uv`-managed CLI around TypeSafe/Jev. It keeps raw output local, redacts common credential patterns, extracts a bounded diagnostic excerpt, and asks typed questions about cause, relevance, severity, security, and the next action.
 
-**Updated on:** 2026-09-21T15:05:58-03:00
+The agent gets a clear assessment instead of carrying an entire log through its context window. `tmjev` does not write code, execute suggested actions, or authorize destructive commands.
 
-**Updated on:** 2026-09-22T09:09:19-03:00
+## When To Use It
 
-**Updated on:** 2026-09-22T09:40:55-03:00
+Use `tmjev` when output is large, noisy, ambiguous, or requires a semantic decision. Skip it when a command already produces a small, deterministic, actionable result.
 
-Reduce the context sent to the main LLM. The `output` command reads raw output, redacts common secret patterns locally, extracts only diagnostic context, and sends typed questions to Jev. By default, the response for the LLM uses the projected assessment schema with all answers and probabilities; `command_succeeded` is added when `--status` is recognizable.
+## Quick Start
 
-## Local Installation
-
-**Updated on:** 2026-09-21T15:13:05-03:00
-
-The project uses the official `typesafe-sdk` for Jev calls and `pydantic-cli` for typed subcommands. The key is read from `~/.env` on every call, without relying on the OpenCode service environment.
-
-**Updated on:** 2026-09-21T17:34:32-03:00
-
-**Updated on:** 2026-09-21T18:26:42-03:00
-
-The local agent skill is at `.agents/skills/tmjev/SKILL.md`. The tracked `./tmjev`
-wrapper resolves its own checkout path, including when invoked through a symlink.
-The packaged console script is also available as `tmjev` after installation. The
-key is read from `~/.env` on every call, without relying on the OpenCode service
-environment.
-
-Prepare the environment:
+Requirements: Python 3.10+ and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-cd /path/to/tell_me_jev
+git clone https://github.com/Filipe-Araujo0/tell-me-jev.git
+cd tell-me-jev
 uv sync
+```
+
+Set `TYPESAFE_API_KEY` in `~/.env` or in the environment. The CLI reads the key for each invocation and never logs or sends it as part of the evaluated state.
+
+Check the installation:
+
+```bash
+./tmjev --version
 ./tmjev --help
 ```
 
-Metadata commands do not call Jev or append LLM-boundary metrics:
+## The Main Workflow
+
+Preserve the source command's exit status, then give the captured output and that status to `tmjev`:
 
 ```bash
-tmjev --version
-tmjev --schema
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+
+pytest -q >"$tmp" 2>&1
+status=$?
+
+./tmjev output \
+  --file "$tmp" \
+  --task "diagnose the test failure" \
+  --tool pytest \
+  --status "$status"
 ```
 
-## Usage
+The normal response is compact JSON. Example output is abbreviated here; the real response contains all six assessments:
 
-Evaluate tool output:
-
-```bash
-command 2>&1 | tmjev output \
-  --task "fix the checkout calculation" \
-  --tool pytest
+```json
+{
+  "schema_version": 1,
+  "model": "jev-latest",
+  "answers": {
+    "kind": {
+      "value": "application_bug",
+      "probabilities": {
+        "application_bug": 0.91,
+        "environment": 0.09
+      }
+    },
+    "next_action": {
+      "value": "fix_code",
+      "probabilities": {
+        "fix_code": 0.84,
+        "inspect_source": 0.16
+      }
+    },
+    "severity": {
+      "value": "high",
+      "probabilities": {
+        "medium": 0.31,
+        "high": 0.57,
+        "critical": 0.12
+      }
+    }
+  },
+  "command_succeeded": false
+}
 ```
 
-Evaluate an already captured file:
+`command_succeeded` is derived from the evaluated command's recognizable `--status`. It describes the source command, not the `tmjev` process or Jev. If no recognizable status is supplied, the field is omitted.
+
+## Output Contract
+
+The complete answer set is:
+
+- `kind`: success, application bug, code quality, test issue, environment, network, security, or ambiguous.
+- `relevant`: whether the output matters to the current task.
+- `evidence_sufficient`: whether the evidence supports a safe next step.
+- `next_action`: stop, inspect, fix code, fix the environment, retry, rerun, or redact and escalate.
+- `security_signal`: whether the output contains a security concern or agent-directed instruction.
+- `severity`: low, medium, high, or critical.
+
+Every answer uses the same projection:
+
+```json
+{
+  "value": "application_bug",
+  "probabilities": {
+    "application_bug": 0.91,
+    "environment": 0.09
+  }
+}
+```
+
+For yes/no answers, `value` is the boolean at the `0.5` threshold and the probability map preserves uncertainty:
+
+```json
+{
+  "value": true,
+  "probabilities": {
+    "true": 0.98,
+    "false": 0.02
+  }
+}
+```
+
+The projected response omits TypeSafe `type`, `confidence`, `legend`, and token `usage`. The raw SDK response remains internal to the CLI.
+
+Use `--pretty` for human-readable JSON. `--full` adds command metadata and the redacted excerpt when `--include-excerpt` is supplied. The legacy `--include-probabilities` flag remains accepted, but probabilities are always included in the projection.
+
+## Input Modes
+
+Evaluate a file or standard input:
 
 ```bash
-tmjev output \
+./tmjev output \
   --file /tmp/tool-output.log \
   --task "diagnose the worker failure" \
   --tool docker-logs \
   --container airflow_worker
 ```
 
-Evaluate custom questions:
+```bash
+make test 2>&1 | ./tmjev output \
+  --task "classify the test output" \
+  --tool make
+```
+
+Ask custom typed questions with JSON files:
 
 ```bash
-tmjev ask \
+./tmjev ask \
   --state-file state.json \
   --questions-file questions.json
 ```
 
-## Test Stack For The LLM
+The `ask` mode uses the same `schema_version`, `model`, `answers`, `value`, and `probabilities` projection.
 
-**Updated on:** 2026-09-21T15:22:55-03:00
+## Configuration
 
-First run the tool normally and check whether its output is already small,
-deterministic, and actionable. Do not call Jev when the result is already
-sufficient. A command such as `pytest -q` is an example of a potentially poor
-Jev use: its concise result may not need semantic triage.
+Common options:
 
-Call Jev only when the output is large, noisy, ambiguous, or requires a
-semantic decision about the next action. When needed, capture the complete
-output of the canonical command and preserve its exit code:
+- `--env-file PATH`: dotenv file containing `TYPESAFE_API_KEY`.
+- `--api-url URL`: override the TypeSafe endpoint.
+- `--model NAME`: select the Jev model.
+- `--timeout SECONDS`: request timeout.
+- `--retries COUNT`: maximum request retries.
+- `--metrics-file PATH`: override the JSONL metrics destination.
 
-```bash
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-
-<canonical-command> >"$tmp" 2>&1
-status=$?
-
-tmjev output \
-  --file "$tmp" \
-  --task "Tell whether the test stack succeeded; the exit status is authoritative." \
-  --tool test-stack \
-  --status "$status"
-```
-
-`--tool` is only a contextual label sent to Jev; it does not execute the tool. Raw output stays in the temporary file and is not printed by the normal flow. Do not add or remove quiet flags solely because of Jev; choose the command whose output is appropriate for the decision. The projected response delivered to the LLM has this shape:
-
-```json
-{"schema_version":1,"model":"jev-latest","answers":{}}
-```
-
-The normal `output` response and `--full` both expose the projected assessment. Each answer has only `value` and `probabilities`; Jev `type`, `confidence`, `legend`, and token `usage` are not exposed. `--full` additionally exposes command metadata and the redacted excerpt when requested. `--include-probabilities` remains accepted for compatibility but no longer changes the response because probabilities are always included.
-
-Use `--pretty` only when a person needs to read the response. The default format is compact JSON to preserve tokens. `--include-probabilities` remains accepted for compatibility; probabilities are always included in the projected full response.
-
-## Savings Measurement
-
-**Updated on:** 2026-09-21T14:49:39-03:00
-
-**Updated on:** 2026-09-21T18:26:42-03:00
-
-The CLI always records one JSONL line with metrics at the LLM boundary without adding the counters to the normal response. Each record has `metrics_schema_version`, `tmjev_version`, `duration_ms`, and `max_retries` in addition to the character counters. The default path is `~/.local/state/tmjev/metrics.jsonl`; use `--metrics-file` only to override the destination:
+Metadata commands do not call Jev or write evaluation metrics:
 
 ```bash
-command 2>&1 | tmjev output \
-  --task "diagnose the failure" \
-  --tool pytest
+./tmjev --version
+./tmjev --schema
 ```
 
-The file records `llm_input_chars_avoided`, `llm_input_chars_from_jev`, and `llm_output_chars_to_jev` separately. The first is the size of the raw output received by the CLI; the second is the exact size of the JSON emitted by the CLI, including the newline; the third is calculated automatically from the arguments received by the CLI without counting `--metrics-file` itself. The record is appended even when the call fails. In `ask` mode, the CLI does not know the avoided raw input, so this field is `null`.
+Dotenv parsing is intentionally strict. Blank lines, comments, optional `export`, and valid `KEY=value` assignments are accepted. Invalid keys, malformed lines, unmatched outer quotes, and invalid UTF-8 fail with a line-numbered error.
 
-## `output` Mode Contract
+## Metrics 📏
 
-**Updated on:** 2026-09-21T18:26:42-03:00
+Evaluation invocations append one JSONL record to `~/.local/state/tmjev/metrics.jsonl`. Metrics measure the LLM boundary in characters, not exact tokens:
 
-**Updated on:** 2026-09-22T09:09:19-03:00
+- `llm_input_chars_avoided`
+- `llm_input_chars_from_jev`
+- `llm_output_chars_to_jev`
+- `duration_ms`
+- `max_retries`
 
-**Updated on:** 2026-09-22T09:33:42-03:00
+The metrics record also carries `metrics_schema_version` and `tmjev_version`. Metrics are kept outside the JSON delivered to the calling agent.
 
-The state sent to Jev includes the task, file metadata, parser facts, and a redacted excerpt. The questions evaluate:
+## Safety 🛡️
 
-- `kind`: output type.
-- `relevant`: relevance to the task.
-- `evidence_sufficient`: whether there is enough evidence to choose the next step.
-- `next_action`: next operational action.
-- `security_signal`: semantic security signal or agent-directed instruction.
-- `severity`: operational severity.
+- In `output` mode, raw logs stay local; only parser facts and a bounded redacted excerpt are sent to Jev.
+- In `output` mode, common credential assignments are redacted before external submission.
+- Prompt-injection signals are exposed as typed evidence, not executed as instructions.
+- Jev's `next_action` is never treated as authorization to run a command.
+- Deterministic parsing, exit-status handling, truncation, and policy gates stay in code.
 
-The default result delivered to the agent uses the projected assessment with `schema_version`, `model`, and all six answers. `command_succeeded` is derived from the evaluated command's recognizable `--status`; it does not describe whether `tmjev` or Jev succeeded. The `--full` mode additionally exposes command metadata; use `--include-excerpt` to include the redacted excerpt.
+## Agent Integration
 
-The `answers` portion of the response uses one stable shape for every question:
+The local OpenCode skill is available at `.agents/skills/tmjev/SKILL.md`. It documents when to call `tmjev`, how to preserve exit status, and how to keep the agent-facing response compact.
 
-```json
-{
-  "kind": {
-    "value": "application_bug",
-    "probabilities": {
-      "application_bug": 0.91,
-      "environment": 0.09
-    }
-  },
-  "relevant": {
-    "value": true,
-    "probabilities": {
-      "true": 0.98,
-      "false": 0.02
-    }
-  },
-  "next_action": {
-    "value": "fix_code",
-    "probabilities": {
-      "fix_code": 0.84,
-      "inspect_source": 0.16
-    }
-  }
-}
+## Development
+
+```bash
+uv sync
+uv run pytest -q
+uv run ruff check .
+uv run ruff format .
+uv run mypy tell_me_jev.py tests/test_tell_me_jev.py
+uv lock --check
 ```
 
-The complete set of answer names is `kind`, `relevant`, `evidence_sufficient`, `next_action`, `security_signal`, and `severity`. For `noul` answers, `value` is the boolean at the `0.5` threshold and the probability distribution preserves the original uncertainty.
-
-Exit codes:
-
-- `0`: evaluation completed.
-- `2`: invalid input, configuration, or call.
-
-Dotenv files accept blank lines, comments, optional `export`, and valid `KEY=value` assignments. Malformed lines, invalid keys, unmatched outer quotes, and invalid UTF-8 fail with a line-numbered error and exit code `2`.
-
-The CLI does not execute the suggested action and does not treat Jev's response as authorization for destructive commands.
+Use Jev as a small typed judgment layer, not as a replacement for deterministic tooling or human review.
