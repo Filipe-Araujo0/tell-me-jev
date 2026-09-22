@@ -8,7 +8,11 @@ A small global CLI managed by `uv` for compact TypeSafe/Jev evaluations during a
 
 **Updated on:** 2026-09-21T15:05:58-03:00
 
-Reduce the context sent to the main LLM. The `output` command reads raw output, redacts common secret patterns locally, extracts only diagnostic context, and sends typed questions to Jev. By default, the response for the LLM contains only `passed` (when an exit status is available), `kind`, and `next_action`; use `--full` for human inspection.
+**Updated on:** 2026-09-22T09:09:19-03:00
+
+**Updated on:** 2026-09-22T09:40:55-03:00
+
+Reduce the context sent to the main LLM. The `output` command reads raw output, redacts common secret patterns locally, extracts only diagnostic context, and sends typed questions to Jev. By default, the response for the LLM uses the projected assessment schema with all answers and probabilities; `command_succeeded` is added when `--status` is recognizable.
 
 ## Local Installation
 
@@ -91,20 +95,20 @@ status=$?
 
 tmjev output \
   --file "$tmp" \
-  --task "Tell whether the test stack passed; the exit status is authoritative." \
+  --task "Tell whether the test stack succeeded; the exit status is authoritative." \
   --tool test-stack \
   --status "$status"
 ```
 
-`--tool` is only a contextual label sent to Jev; it does not execute the tool. Raw output stays in the temporary file and is not printed by the normal flow. Do not add or remove quiet flags solely because of Jev; choose the command whose output is appropriate for the decision. The reduced response delivered to the LLM has this format:
+`--tool` is only a contextual label sent to Jev; it does not execute the tool. Raw output stays in the temporary file and is not printed by the normal flow. Do not add or remove quiet flags solely because of Jev; choose the command whose output is appropriate for the decision. The projected response delivered to the LLM has this shape:
 
 ```json
-{"passed":true,"kind":"success","next_action":"stop"}
+{"schema_version":1,"model":"jev-latest","answers":{}}
 ```
 
-Use `--full` only to investigate a human execution; it restores metadata, usage, severity, and the other answers.
+The normal `output` response and `--full` both expose the projected assessment. Each answer has only `value` and `probabilities`; Jev `type`, `confidence`, `legend`, and token `usage` are not exposed. `--full` additionally exposes command metadata and the redacted excerpt when requested. `--include-probabilities` remains accepted for compatibility but no longer changes the response because probabilities are always included.
 
-Use `--pretty` only when a person needs to read the response. The default format is compact JSON to preserve tokens. Use `--include-probabilities` only when diagnosing model behavior.
+Use `--pretty` only when a person needs to read the response. The default format is compact JSON to preserve tokens. `--include-probabilities` remains accepted for compatibility; probabilities are always included in the projected full response.
 
 ## Savings Measurement
 
@@ -126,6 +130,10 @@ The file records `llm_input_chars_avoided`, `llm_input_chars_from_jev`, and `llm
 
 **Updated on:** 2026-09-21T18:26:42-03:00
 
+**Updated on:** 2026-09-22T09:09:19-03:00
+
+**Updated on:** 2026-09-22T09:33:42-03:00
+
 The state sent to Jev includes the task, file metadata, parser facts, and a redacted excerpt. The questions evaluate:
 
 - `kind`: output type.
@@ -135,7 +143,37 @@ The state sent to Jev includes the task, file metadata, parser facts, and a reda
 - `security_signal`: semantic security signal or agent-directed instruction.
 - `severity`: operational severity.
 
-The default result delivered to the agent is reduced to `passed`, `kind`, and `next_action`. The `--full` mode adds metadata, model, usage, and the remaining answers for diagnosis.
+The default result delivered to the agent uses the projected assessment with `schema_version`, `model`, and all six answers. `command_succeeded` is derived from the evaluated command's recognizable `--status`; it does not describe whether `tmjev` or Jev succeeded. The `--full` mode additionally exposes command metadata; use `--include-excerpt` to include the redacted excerpt.
+
+The `answers` portion of the response uses one stable shape for every question:
+
+```json
+{
+  "kind": {
+    "value": "application_bug",
+    "probabilities": {
+      "application_bug": 0.91,
+      "environment": 0.09
+    }
+  },
+  "relevant": {
+    "value": true,
+    "probabilities": {
+      "true": 0.98,
+      "false": 0.02
+    }
+  },
+  "next_action": {
+    "value": "fix_code",
+    "probabilities": {
+      "fix_code": 0.84,
+      "inspect_source": 0.16
+    }
+  }
+}
+```
+
+The complete set of answer names is `kind`, `relevant`, `evidence_sufficient`, `next_action`, `security_signal`, and `severity`. For `noul` answers, `value` is the boolean at the `0.5` threshold and the probability distribution preserves the original uncertainty.
 
 Exit codes:
 

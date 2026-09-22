@@ -33,6 +33,7 @@ DEFAULT_MODEL = "jev-latest"
 DEFAULT_ENV_FILE = Path.home() / ".env"
 DEFAULT_METRICS_FILE = Path.home() / ".local" / "state" / "tmjev" / "metrics.jsonl"
 METRICS_SCHEMA_VERSION = 1
+RESPONSE_SCHEMA_VERSION = 1
 
 try:
     __version__ = package_version("tell_me_jev")
@@ -351,23 +352,37 @@ def request_evaluation(
 def compact_response(
     response: dict[str, Any], include_probabilities: bool = False
 ) -> dict[str, Any]:
+    """Project Jev answers into the stable agent-facing response shape."""
+    del (
+        include_probabilities
+    )  # Kept as a compatibility flag; probabilities are always projected.
     answers: dict[str, Any] = {}
     for key, answer in response.get("answers", {}).items():
-        compact_answer = {"type": answer.get("type")}
-        for field in ("choice", "noul", "score", "confidence"):
-            if field in answer:
-                compact_answer[field] = answer[field]
-        if include_probabilities and "probabilities" in answer:
-            compact_answer["probabilities"] = answer["probabilities"]
-        answers[key] = compact_answer
+        answer_type = answer.get("type")
+        if answer_type == "choice":
+            value = answer["choice"]
+            probabilities = answer["probabilities"]
+        elif answer_type == "noul":
+            noul = answer["noul"]
+            value = noul >= 0.5
+            probabilities = {"true": noul, "false": round(1 - noul, 12)}
+        elif answer_type == "score":
+            value = answer["score"]
+            probabilities = answer["probabilities"]
+        else:
+            raise CliError(
+                f"Jev returned unsupported answer type for {key}: {answer_type}"
+            )
+
+        answers[key] = {"value": value, "probabilities": probabilities}
     return {
+        "schema_version": RESPONSE_SCHEMA_VERSION,
         "model": response.get("model"),
         "answers": answers,
-        "usage": response.get("usage", {}),
     }
 
 
-def status_passed(status: Any) -> bool | None:
+def status_command_succeeded(status: Any) -> bool | None:
     if status is None:
         return None
     normalized = str(status).strip().lower()
@@ -381,16 +396,15 @@ def status_passed(status: Any) -> bool | None:
 
 
 def agent_summary(result: dict[str, Any]) -> dict[str, Any]:
-    """Return only the decisions the calling agent needs for the next step."""
-    answers = result.get("answers", {})
-    summary: dict[str, Any] = {}
-    passed = status_passed(result.get("input", {}).get("status"))
-    if passed is not None:
-        summary["passed"] = passed
-    for answer_key in ("kind", "next_action"):
-        answer = answers.get(answer_key, {})
-        if "choice" in answer:
-            summary[answer_key] = answer["choice"]
+    """Return the projected assessment for the calling agent."""
+    summary: dict[str, Any] = {
+        "schema_version": result["schema_version"],
+        "model": result["model"],
+        "answers": result["answers"],
+    }
+    command_succeeded = status_command_succeeded(result.get("input", {}).get("status"))
+    if command_succeeded is not None:
+        summary["command_succeeded"] = command_succeeded
     return summary
 
 

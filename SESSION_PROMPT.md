@@ -12,13 +12,19 @@ Use Jev exclusively as an inexpensive semantic judgment layer to reduce the main
 
 **Updated on:** 2026-09-21T17:34:32-03:00
 
-- **Updated on:** 2026-09-21T18:26:42-03:00
+**Updated on:** 2026-09-21T18:26:42-03:00
+
+**Updated on:** 2026-09-22T09:09:19-03:00
+
+**Updated on:** 2026-09-22T09:33:42-03:00
+
+**Updated on:** 2026-09-22T09:40:55-03:00
 - The TypeSafe skill is installed for OpenCode at `~/.agents/skills/typesafe-ai`.
 - The API key is in `~/.env` under `TYPESAFE_API_KEY`.
 - Never display, record, copy, or put the key in prompts, responses, Git, or memory.
 - The installed global CLI is `tmjev`, with compact JSON output by default.
 - `tmjev --version` and `tmjev --schema` expose local metadata without calling Jev or writing metrics.
-- In `output` mode, the normal output for the LLM contains only `passed` (when a status is supplied), `kind`, and `next_action`; use `--full` only for human diagnosis.
+- In `output` mode, the normal output for the LLM uses the projected assessment with all answers and probabilities; `command_succeeded` is added when `--status` is recognizable.
 - The project is managed with `uv`, uses the official `typesafe-sdk` for Jev, and uses `pydantic-cli` for typed subcommands.
 - The environment must be synchronized with `uv sync`; the global wrapper runs through the uv project, not the system Python.
 - The local CLI usage skill is at `.agents/skills/tmjev/SKILL.md`.
@@ -29,6 +35,8 @@ Use Jev exclusively as an inexpensive semantic judgment layer to reduce the main
 ## Recommended Output Flow
 
 **Updated on:** 2026-09-21T15:22:55-03:00
+
+**Updated on:** 2026-09-22T09:09:19-03:00
 
 1. Capture raw output in a temporary file when logs are large.
 2. Parse exit codes, truncation, paths, counts, and secret scanning deterministically.
@@ -44,7 +52,7 @@ Use Jev exclusively as an inexpensive semantic judgment layer to reduce the main
 6. The code combines the answers and keeps raw output locally when necessary.
 7. Never use Jev as the sole detector for secrets, prompt injection, or authorization for a destructive command.
 
-To evaluate any tool, first check whether its output is already small, deterministic, and actionable. A command such as `pytest -q` may be an unnecessary use of Jev. Capture the complete output and call `tmjev output` with `--status` only when there is noise, ambiguity, volume, or a need for semantic diagnosis. `--tool` is only a contextual label. The normal output for the LLM must be the JSON summary with `passed`, `kind`, and `next_action`; use `--full` only for human diagnosis.
+To evaluate any tool, first check whether its output is already small, deterministic, and actionable. A command such as `pytest -q` may be an unnecessary use of Jev. Capture the complete output and call `tmjev output` with `--status` only when there is noise, ambiguity, volume, or a need for semantic diagnosis. `--tool` is only a contextual label. The normal output for the LLM uses the projected assessment with `schema_version`, `model`, and all answers; `command_succeeded` describes the evaluated command, not the Jev request. Token usage is omitted from the projected response.
 
 ## Main LLM Savings Measurement
 

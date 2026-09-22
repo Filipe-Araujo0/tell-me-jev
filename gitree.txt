@@ -4,15 +4,15 @@ Legend: path:{lines}  (lines = total number of lines via wc -l)
     ├── .agents
     │   └── skills
     │       └── tmjev
-    │           └── SKILL.md:96
+    │           └── SKILL.md:102
     ├── .gitignore:37
-    ├── README.md:147
-    ├── SESSION_PROMPT.md:86
+    ├── README.md:185
+    ├── SESSION_PROMPT.md:94
     ├── gitree.txt:19
     ├── pyproject.toml:41
-    ├── tell_me_jev.py:668
+    ├── tell_me_jev.py:682
     ├── tests
-    │   └── test_tell_me_jev.py:454
+    │   └── test_tell_me_jev.py:614
     ├── tmjev:13
     └── uv.lock:748
 

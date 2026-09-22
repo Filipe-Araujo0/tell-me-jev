@@ -36,7 +36,7 @@ status=$?
 
 tmjev output \
   --file "$tmp" \
-  --task "Tell whether the test stack passed; the exit status is authoritative." \
+  --task "Tell whether the test stack succeeded; the exit status is authoritative." \
   --tool test-stack \
   --status "$status"
 ```
@@ -50,18 +50,24 @@ exit status.
 
 ## Output Contract
 
-The normal `output` response is intentionally minimal:
+**Updated on:** 2026-09-22T09:09:19-03:00
+
+**Updated on:** 2026-09-22T09:40:55-03:00
+
+The normal `output` response uses the projected assessment schema:
 
 ```json
-{"passed":true,"kind":"success","next_action":"stop"}
+{"schema_version":1,"model":"jev-latest","answers":{}}
 ```
 
-The `passed` field appears when a recognizable `--status` is supplied. The
-exit status is deterministic and takes precedence over semantic guesses.
+The `command_succeeded` field appears when a recognizable `--status` is supplied.
+It describes the evaluated command, not the Jev request or the `tmjev` process.
+The exit status is deterministic and takes precedence over semantic guesses.
 
-Use `--full` only when a human or a diagnostic workflow needs metadata, Jev
-usage, severity, all answers, or the redacted excerpt. Do not use `--full` for
-the normal agent-to-agent path.
+Every answer has `value` and `probabilities`; token usage, `type`, `confidence`,
+and `legend` are omitted. `--full` adds command metadata and the redacted
+excerpt when requested. `--include-probabilities` remains accepted for
+compatibility but does not change the response.
 
 Do not pipe through `tee` when only the decision should reach the agent; it
 prints the raw output unnecessarily. The CLI stores the raw input locally,
